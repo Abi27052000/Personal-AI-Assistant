@@ -121,6 +121,12 @@
       "skillPath": "skills/clerk-webhooks/SKILL.md",
       "computedHash": "d631dbe50678106e18ccbaaf092bb47e9871f6b811ed4420d93c3fad5c5342d1"
     },
+    "daytona": {
+      "source": "daytona/skills",
+      "sourceType": "github",
+      "skillPath": "skills/daytona/SKILL.md",
+      "computedHash": "89fc9e3cd4500e20020e2e4f6378c00a6d7eeebd7645d7ac09aef65a871dde2a"
+    },
     "hono": {
       "source": "honojs/skills",
       "sourceType": "github",
