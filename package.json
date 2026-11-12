@@ -5,16 +5,22 @@
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",
+    "drizzle-orm": "^0.45.4",
     "hono": "^4.13.16",
+    "postgres": "^3.4.9",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@hono/cli": "^1.0.0-rc.9",
     "@types/node": "^26.1.1",
+    "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"
   }
