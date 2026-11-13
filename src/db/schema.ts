@@ -4,7 +4,7 @@ import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/
  * Chat apps we can receive messages from. Stored as plain text so adding a
  * channel later needs no database migration, only a new value here.
  */
-export type Channel = 'whatsapp'
+export type Channel = 'whatsapp' | 'web'
 
 /** Who wrote a transcript message. */
 export type MessageRole = 'user' | 'assistant'
