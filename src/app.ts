@@ -1,15 +1,15 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
+import { web } from './web/pages.js'
 import { whatsappWebhook } from './webhooks/whatsapp-webhook.js'
 
 const app = new Hono()
 
 app.use(logger())
 
-app.get('/', (c) => {
-  return c.text('Hello HI!')
-})
+// Web pages: home, /chat (Clerk sign-in required) and sign-out.
+app.route('/', web)
 
 // Used by Railway (and anyone else) to check the server is up.
 app.get('/health', (c) => {
