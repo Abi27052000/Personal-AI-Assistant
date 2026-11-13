@@ -1,4 +1,5 @@
 import { createRedirect } from '@clerk/backend/internal'
+import { parsePublishableKey } from '@clerk/shared/keys'
 import { clerkMiddleware, getAuth } from '@clerk/hono'
 import type { Context, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie } from 'hono/cookie'
@@ -41,6 +42,21 @@ export const requireSignedIn: MiddlewareHandler = async (c, next) => {
     redirectAdapter: (url) => c.redirect(String(url)),
   })
   return redirectToSignIn({ returnBackUrl: c.req.url })
+}
+
+/**
+ * What a page needs to load Clerk's browser script (clerk-js). The script
+ * keeps the short-lived session cookie renewed in the background, so a form
+ * posted after a pause is still signed in. Both values are public.
+ */
+export function clerkBrowserConfig(): { publishableKey: string; scriptUrl: string } {
+  const publishableKey = requireEnv('CLERK_PUBLISHABLE_KEY')
+  const parsed = parsePublishableKey(publishableKey)
+  if (!parsed) throw new Error('CLERK_PUBLISHABLE_KEY is not a valid Clerk publishable key')
+  return {
+    publishableKey,
+    scriptUrl: `https://${parsed.frontendApi}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`,
+  }
 }
 
 /**
