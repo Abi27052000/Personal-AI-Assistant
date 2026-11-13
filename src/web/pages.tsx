@@ -4,11 +4,12 @@ import { csrf } from 'hono/csrf'
 import { css, cx } from 'hono/css'
 import type { FC } from 'hono/jsx'
 import { z } from 'zod'
-import { clerk, requireSignedIn, signOut } from '../auth/clerk.js'
+import { clerk, clerkBrowserConfig, requireSignedIn, signOut } from '../auth/clerk.js'
 import { dispatchUserMessage } from '../agent/dispatch.js'
 import { loadHistory, saveMessage } from '../channels/transcript.js'
 import type { Message } from '../db/schema.js'
 import { gateInbound, UPGRADE_MESSAGE, type GateResult } from '../gate/channel-gate.js'
+import { CHAT_PAGE_SCRIPT } from './chat-script.js'
 import { renderer } from './renderer.js'
 
 /** Web pages, mounted at / in app.ts. */
@@ -179,8 +180,9 @@ const MAX_WAIT_MS = 2 * 60 * 1000
 
 /**
  * While the newest message is the user's, the reply is still being written.
- * Show a placeholder and refresh the page until it arrives (no JavaScript:
- * the <meta> tag is hoisted into <head>).
+ * Show a placeholder; the page script reloads the page until it arrives.
+ * The reload URL differs every time: reloading the same "/chat#latest" would
+ * only scroll, not reload.
  */
 const PendingReply: FC<{ history: Message[] }> = ({ history }) => {
   const last = history.at(-1)
@@ -194,11 +196,31 @@ const PendingReply: FC<{ history: Message[] }> = ({ history }) => {
     )
   }
   return (
+    <div
+      class={cx(bubble, fromAssistant, muted)}
+      aria-live="polite"
+      data-refresh-url={`/chat?t=${Date.now()}#latest`}
+      data-refresh-seconds={String(REFRESH_SECONDS)}
+    >
+      Thinking…
+      <noscript> Refresh the page to see the reply.</noscript>
+    </div>
+  )
+}
+
+/** Clerk's browser script plus the page script (see chat-script.ts). */
+const PageScripts: FC = () => {
+  const { publishableKey, scriptUrl } = clerkBrowserConfig()
+  return (
     <>
-      <meta http-equiv="refresh" content={String(REFRESH_SECONDS)} />
-      <div class={cx(bubble, fromAssistant, muted)} aria-live="polite">
-        Thinking…
-      </div>
+      <script
+        defer
+        crossorigin="anonymous"
+        data-clerk-publishable-key={publishableKey}
+        src={scriptUrl}
+        type="text/javascript"
+      />
+      <script dangerouslySetInnerHTML={{ __html: CHAT_PAGE_SCRIPT }} />
     </>
   )
 }
@@ -249,7 +271,6 @@ const ChatPage: FC<ChatPageProps> = ({ who, history, gate, clientMessageId, erro
           placeholder="Type a message…"
           maxlength={MAX_MESSAGE_LENGTH}
           required
-          autofocus
           aria-label="Message"
         >
           {draft ?? ''}
@@ -260,6 +281,7 @@ const ChatPage: FC<ChatPageProps> = ({ who, history, gate, clientMessageId, erro
         </button>
       </form>
     )}
+    <PageScripts />
   </>
 )
 
