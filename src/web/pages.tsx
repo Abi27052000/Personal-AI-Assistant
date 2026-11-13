@@ -8,6 +8,7 @@ import { clerk, requireSignedIn, signOut } from '../auth/clerk.js'
 import { sendToChannel } from '../channels/channel-senders.js'
 import { loadHistory, saveMessage } from '../channels/transcript.js'
 import type { Message } from '../db/schema.js'
+import { gateInbound, UPGRADE_MESSAGE, type GateResult } from '../gate/channel-gate.js'
 import { renderer } from './renderer.js'
 
 /** Web pages, mounted at / in app.ts. */
@@ -116,6 +117,30 @@ const composer = css`
   }
 `
 
+const notice = css`
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  p {
+    margin: 0;
+  }
+`
+
+const linkButton = css`
+  padding: 8px 18px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff !important;
+  text-decoration: none;
+`
+
 const errorText = css`
   color: #dc2626;
   font-size: 0.9rem;
@@ -134,9 +159,23 @@ const Home: FC = () => (
   </>
 )
 
+const UpgradeNotice: FC<{ url: string }> = ({ url }) => (
+  <div id="latest" class={notice}>
+    <p>
+      <strong>{UPGRADE_MESSAGE}</strong>
+      <br />
+      <span class={muted}>Subscribe, then come back here to chat. Your history is kept.</span>
+    </p>
+    <a class={linkButton} href={url}>
+      Upgrade to Pro
+    </a>
+  </div>
+)
+
 interface ChatPageProps {
   who: string
   history: Message[]
+  gate: GateResult
   /** One-time id for the next form submit, so a double submit saves once. */
   clientMessageId: string
   error?: string
@@ -144,7 +183,7 @@ interface ChatPageProps {
   draft?: string
 }
 
-const ChatPage: FC<ChatPageProps> = ({ who, history, clientMessageId, error, draft }) => (
+const ChatPage: FC<ChatPageProps> = ({ who, history, gate, clientMessageId, error, draft }) => (
   <>
     <div class={header}>
       <div>
@@ -168,23 +207,27 @@ const ChatPage: FC<ChatPageProps> = ({ who, history, clientMessageId, error, dra
       )}
     </div>
 
-    <form id="latest" class={composer} method="post" action="/chat">
-      <input type="hidden" name="clientMessageId" value={clientMessageId} />
-      <textarea
-        name="text"
-        placeholder="Type a message…"
-        maxlength={MAX_MESSAGE_LENGTH}
-        required
-        autofocus
-        aria-label="Message"
-      >
-        {draft ?? ''}
-      </textarea>
-      {error && <p class={errorText}>{error}</p>}
-      <button class={primaryButton} type="submit">
-        Send
-      </button>
-    </form>
+    {gate.status === 'upgrade_required' ? (
+      <UpgradeNotice url={gate.upgradeUrl} />
+    ) : (
+      <form id="latest" class={composer} method="post" action="/chat">
+        <input type="hidden" name="clientMessageId" value={clientMessageId} />
+        <textarea
+          name="text"
+          placeholder="Type a message…"
+          maxlength={MAX_MESSAGE_LENGTH}
+          required
+          autofocus
+          aria-label="Message"
+        >
+          {draft ?? ''}
+        </textarea>
+        {error && <p class={errorText}>{error}</p>}
+        <button class={primaryButton} type="submit">
+          Send
+        </button>
+      </form>
+    )}
   </>
 )
 
@@ -197,9 +240,20 @@ function currentUserId(c: Context): string {
   return userId
 }
 
+/** Run the channel gate for the signed-in web user. */
+function gateWebUser(c: Context, userId: string): Promise<GateResult> {
+  const auth = getAuth(c)
+  return gateInbound({
+    clerk: c.get('clerk'),
+    clerkUserId: userId,
+    sessionHas: (params) => auth.has(params),
+  })
+}
+
 async function renderChat(
   c: Context,
   userId: string,
+  gate: GateResult,
   extra: { error?: string; draft?: string } = {},
 ) {
   const [user, history] = await Promise.all([
@@ -208,14 +262,23 @@ async function renderChat(
   ])
   const who = user.primaryEmailAddress?.emailAddress ?? user.username ?? 'your account'
   return c.render(
-    <ChatPage who={who} history={history} clientMessageId={crypto.randomUUID()} {...extra} />,
+    <ChatPage
+      who={who}
+      history={history}
+      gate={gate}
+      clientMessageId={crypto.randomUUID()}
+      {...extra}
+    />,
     { title: 'Chat' },
   )
 }
 
 web.get('/', (c) => c.render(<Home />, { title: 'Home' }))
 
-web.get('/chat', (c) => renderChat(c, currentUserId(c)))
+web.get('/chat', async (c) => {
+  const userId = currentUserId(c)
+  return renderChat(c, userId, await gateWebUser(c, userId))
+})
 
 const messageForm = z.object({
   clientMessageId: z.uuid('Something went wrong with the form. Please reload the page and try again.'),
@@ -229,12 +292,20 @@ const messageForm = z.object({
 // A plain form post; csrf() rejects posts from other websites.
 web.post('/chat', csrf(), async (c) => {
   const userId = currentUserId(c)
+
+  // Channel gate first: nothing is saved for users without Pro.
+  const gate = await gateWebUser(c, userId)
+  if (gate.status !== 'allowed') {
+    c.status(403)
+    return renderChat(c, userId, gate)
+  }
+
   const body = await c.req.parseBody()
   const parsed = messageForm.safeParse(body)
   if (!parsed.success) {
     c.status(422)
     const draft = typeof body.text === 'string' ? body.text.slice(0, MAX_MESSAGE_LENGTH) : ''
-    return renderChat(c, userId, { error: parsed.error.issues[0]?.message, draft })
+    return renderChat(c, userId, gate, { error: parsed.error.issues[0]?.message, draft })
   }
 
   const { text, clientMessageId } = parsed.data
