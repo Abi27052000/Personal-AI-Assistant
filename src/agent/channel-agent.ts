@@ -1,4 +1,5 @@
 import { stepCountIs, type ModelMessage, type ToolSet } from 'ai'
+import { env } from '../config/env.js'
 import type { Message } from '../db/schema.js'
 import { generateWithFallback, type GenerateResult, type ModelCandidate } from './model.js'
 import { webTools } from './web-tools.js'
@@ -15,11 +16,25 @@ export const MAX_MESSAGE_CHARS = 8_000
 /** Most model steps per reply (each tool round is a step, plus the final answer). */
 export const MAX_AGENT_STEPS = 6
 
-export function buildInstructions(now: Date = new Date()): string {
-  const today = now.toISOString().slice(0, 10)
+/** e.g. "Saturday, 14 November 2026, 00:06 (Asia/Colombo)" */
+export function describeNow(now: Date, timeZone: string): string {
+  const formatted = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(now)
+  return `${formatted} (${timeZone})`
+}
+
+export function buildInstructions(now: Date = new Date(), timeZone: string = env.ASSISTANT_TIMEZONE): string {
   return [
     'You are a helpful personal AI assistant, chatting with one person through a chat app.',
-    `Today's date is ${today} (UTC).`,
+    `It is now ${describeNow(now, timeZone)}. Use this as "today" and "now" for the user.`,
     'Be friendly, clear and concise. Prefer short answers unless the user asks for detail.',
     'Use plain text: the chat does not render Markdown, so avoid headings, tables and **bold**.',
     "If you don't know something or can't do it, say so honestly instead of guessing.",

@@ -10,6 +10,7 @@ import { loadHistory, saveMessage } from '../channels/transcript.js'
 import type { Message } from '../db/schema.js'
 import { gateInbound, UPGRADE_MESSAGE, type GateResult } from '../gate/channel-gate.js'
 import { CHAT_PAGE_SCRIPT } from './chat-script.js'
+import { Linkified } from './linkify.js'
 import { renderer } from './renderer.js'
 
 /** Web pages, mounted at / in app.ts. */
@@ -255,7 +256,9 @@ const ChatPage: FC<ChatPageProps> = ({ who, history, gate, clientMessageId, erro
         <p class={cx(muted, empty)}>No messages yet. Say hello below.</p>
       ) : (
         history.map((m) => (
-          <div class={cx(bubble, m.role === 'user' ? fromUser : fromAssistant)}>{m.content}</div>
+          <div class={cx(bubble, m.role === 'user' ? fromUser : fromAssistant)}>
+            <Linkified text={m.content} />
+          </div>
         ))
       )}
       <PendingReply history={history} />
