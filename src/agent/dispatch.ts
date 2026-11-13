@@ -1,7 +1,7 @@
 import { idempotencyKeys, tasks } from '@trigger.dev/sdk'
 // Type-only import: the task code itself is never bundled into the web server.
 import type { webChatMessage } from '../trigger/web-chat.js'
-import { sendFailureReply } from './handle-message.js'
+import { sendFailureReply } from './failure-reply.js'
 
 /**
  * Hand a saved user message to the Trigger.dev task that writes the reply.
