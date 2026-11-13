@@ -10,7 +10,7 @@ import { createReply } from './reply.js'
 export const FAILURE_REPLY = 'Sorry, something went wrong. Please try again.'
 
 export type HandleResult =
-  | { status: 'replied'; replyLength: number }
+  | { status: 'replied'; replyLength: number; model: string; fellBack: boolean }
   | { status: 'skipped'; reason: string }
 
 /** Create and deliver the reply to one saved user message. */
@@ -24,15 +24,15 @@ export async function handleUserMessage(messageId: string): Promise<HandleResult
   const upTo = history.findIndex((m) => m.id === message.id)
   const conversation = upTo === -1 ? [...history, message] : history.slice(0, upTo + 1)
 
-  const text = await createReply(conversation)
+  const reply = await createReply(conversation)
   await sendToChannel({
     channel: message.channel,
     externalId: message.externalId,
     clerkUserId: message.clerkUserId,
-    text,
+    text: reply.text,
     replyToMessageId: message.id,
   })
-  return { status: 'replied', replyLength: text.length }
+  return { status: 'replied', replyLength: reply.text.length, model: reply.model, fellBack: reply.fellBack }
 }
 
 /**
