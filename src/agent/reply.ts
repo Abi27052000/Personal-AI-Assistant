@@ -11,5 +11,5 @@ export async function createReply(history: Message[]): Promise<GenerateResult> {
   if (!latest || latest.role !== 'user') {
     throw new Error('createReply needs a conversation that ends with a user message')
   }
-  return runAgent({ history })
+  return runAgent({ userId: latest.clerkUserId, history })
 }
