@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
+import { whatsappWebhook } from './webhooks/whatsapp-webhook.js'
 
 const app = new Hono()
 
@@ -14,6 +15,9 @@ app.get('/', (c) => {
 app.get('/health', (c) => {
   return c.json({ ok: true })
 })
+
+// Meta WhatsApp Cloud API: setup check (GET) and incoming messages (POST).
+app.route('/webhooks/whatsapp', whatsappWebhook)
 
 app.notFound((c) => {
   return c.json({ error: 'Not Found' }, 404)
