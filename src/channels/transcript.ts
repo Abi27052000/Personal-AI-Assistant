@@ -34,6 +34,12 @@ export async function saveMessage(input: SaveMessageInput): Promise<Message | nu
   return row ?? null
 }
 
+/** One message by its id, or null if it doesn't exist. */
+export async function getMessage(id: string): Promise<Message | null> {
+  const [row] = await getDb().select().from(messages).where(eq(messages.id, id)).limit(1)
+  return row ?? null
+}
+
 /** The latest `limit` messages of one conversation, oldest first. */
 export async function loadHistory(
   channel: Channel,
