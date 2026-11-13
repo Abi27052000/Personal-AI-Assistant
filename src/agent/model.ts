@@ -6,6 +6,7 @@ import {
   type LanguageModelUsage,
   type ModelMessage,
   type StopCondition,
+  type TimeoutConfiguration,
   type ToolSet,
 } from 'ai'
 import { env, requireEnv } from '../config/env.js'
@@ -45,9 +46,15 @@ export interface GenerateRequest {
   tools?: ToolSet
   /** When to stop a tool-calling loop (Steps 9-10). */
   stopWhen?: StopCondition<ToolSet>
-  /** Per-provider time limit. Default 45 seconds. */
-  timeoutMs?: number
+  /** Time limits per provider attempt. Defaults: DEFAULT_TIMEOUT. */
+  timeout?: TimeoutConfiguration<ToolSet>
 }
+
+/**
+ * Default time limits for one provider attempt: each model call 45 s, each
+ * tool call 25 s, and the whole attempt (with tool calls) 2 minutes.
+ */
+export const DEFAULT_TIMEOUT = { totalMs: 120_000, stepMs: 45_000, toolMs: 25_000 }
 
 export interface GenerateResult {
   text: string
@@ -88,7 +95,7 @@ export async function generateWithFallback(
         stopWhen: request.stopWhen,
         // One quick retry inside a provider; after that, move on to the next.
         maxRetries: 1,
-        timeout: request.timeoutMs ?? 45_000,
+        timeout: request.timeout ?? DEFAULT_TIMEOUT,
       })
       const text = result.text.trim()
       if (!text) throw new Error('model returned an empty reply')

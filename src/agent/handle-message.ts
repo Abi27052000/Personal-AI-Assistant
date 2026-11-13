@@ -7,7 +7,7 @@ import { createReply } from './reply.js'
  * Trigger.dev imports so it can be tested and reused on its own.
  */
 
-export const FAILURE_REPLY = 'Sorry, something went wrong. Please try again.'
+export { FAILURE_REPLY, sendFailureReply } from './failure-reply.js'
 
 export type HandleResult =
   | { status: 'replied'; replyLength: number; model: string; fellBack: boolean }
@@ -35,18 +35,3 @@ export async function handleUserMessage(messageId: string): Promise<HandleResult
   return { status: 'replied', replyLength: reply.text.length, model: reply.model, fellBack: reply.fellBack }
 }
 
-/**
- * Tell the user their message couldn't be answered. Safe to call more than
- * once, and does nothing if a real reply was already delivered.
- */
-export async function sendFailureReply(messageId: string): Promise<void> {
-  const message = await getMessage(messageId)
-  if (!message) return
-  await sendToChannel({
-    channel: message.channel,
-    externalId: message.externalId,
-    clerkUserId: message.clerkUserId,
-    text: FAILURE_REPLY,
-    replyToMessageId: message.id,
-  })
-}
