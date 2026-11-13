@@ -1,9 +1,13 @@
 import { getAuth } from '@clerk/hono'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { csrf } from 'hono/csrf'
-import { css } from 'hono/css'
+import { css, cx } from 'hono/css'
 import type { FC } from 'hono/jsx'
+import { z } from 'zod'
 import { clerk, requireSignedIn, signOut } from '../auth/clerk.js'
+import { sendToChannel } from '../channels/channel-senders.js'
+import { loadHistory, saveMessage } from '../channels/transcript.js'
+import type { Message } from '../db/schema.js'
 import { renderer } from './renderer.js'
 
 /** Web pages, mounted at / in app.ts. */
@@ -13,6 +17,11 @@ export const web = new Hono()
 // webhooks stay JSON and don't need Clerk keys.
 web.use('/', renderer)
 web.use('/chat', renderer, clerk, requireSignedIn)
+
+/** Longest message a user can send, in characters. */
+export const MAX_MESSAGE_LENGTH = 4000
+
+/* ---------- styles ---------- */
 
 const header = css`
   display: flex;
@@ -41,16 +50,79 @@ const button = css`
   cursor: pointer;
 `
 
-const chatBox = css`
-  min-height: 320px;
+const primaryButton = css`
+  font: inherit;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  align-self: flex-end;
+`
+
+const thread = css`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 240px;
   padding: 16px;
   border: 1px solid #d0d4da;
   border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+`
+
+const empty = css`
+  margin: auto;
   text-align: center;
 `
+
+const bubble = css`
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+`
+
+const fromUser = css`
+  align-self: flex-end;
+  background: #2563eb;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+`
+
+const fromAssistant = css`
+  align-self: flex-start;
+  background: #e6e9ee;
+  color: #1f2328;
+  border-bottom-left-radius: 4px;
+`
+
+const composer = css`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  textarea {
+    font: inherit;
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    border: 1px solid #d0d4da;
+    border-radius: 10px;
+    resize: vertical;
+    background: transparent;
+    color: inherit;
+  }
+`
+
+const errorText = css`
+  color: #dc2626;
+  font-size: 0.9rem;
+  margin: 0;
+`
+
+/* ---------- components ---------- */
 
 const Home: FC = () => (
   <>
@@ -62,7 +134,17 @@ const Home: FC = () => (
   </>
 )
 
-const ChatPage: FC<{ who: string }> = ({ who }) => (
+interface ChatPageProps {
+  who: string
+  history: Message[]
+  /** One-time id for the next form submit, so a double submit saves once. */
+  clientMessageId: string
+  error?: string
+  /** Text to put back in the box after a validation error. */
+  draft?: string
+}
+
+const ChatPage: FC<ChatPageProps> = ({ who, history, clientMessageId, error, draft }) => (
   <>
     <div class={header}>
       <div>
@@ -75,23 +157,106 @@ const ChatPage: FC<{ who: string }> = ({ who }) => (
         </button>
       </form>
     </div>
-    <div class={chatBox}>
-      <p class={muted}>No messages yet. Chatting arrives in the next step.</p>
+
+    <div class={thread}>
+      {history.length === 0 ? (
+        <p class={cx(muted, empty)}>No messages yet. Say hello below.</p>
+      ) : (
+        history.map((m) => (
+          <div class={cx(bubble, m.role === 'user' ? fromUser : fromAssistant)}>{m.content}</div>
+        ))
+      )}
     </div>
+
+    <form id="latest" class={composer} method="post" action="/chat">
+      <input type="hidden" name="clientMessageId" value={clientMessageId} />
+      <textarea
+        name="text"
+        placeholder="Type a message…"
+        maxlength={MAX_MESSAGE_LENGTH}
+        required
+        autofocus
+        aria-label="Message"
+      >
+        {draft ?? ''}
+      </textarea>
+      {error && <p class={errorText}>{error}</p>}
+      <button class={primaryButton} type="submit">
+        Send
+      </button>
+    </form>
   </>
 )
 
+/* ---------- routes ---------- */
+
+/** The signed-in user's id. requireSignedIn has already checked it exists. */
+function currentUserId(c: Context): string {
+  const { userId } = getAuth(c)
+  if (!userId) throw new Error('requireSignedIn must run before this handler')
+  return userId
+}
+
+async function renderChat(
+  c: Context,
+  userId: string,
+  extra: { error?: string; draft?: string } = {},
+) {
+  const [user, history] = await Promise.all([
+    c.get('clerk').users.getUser(userId),
+    loadHistory('web', userId),
+  ])
+  const who = user.primaryEmailAddress?.emailAddress ?? user.username ?? 'your account'
+  return c.render(
+    <ChatPage who={who} history={history} clientMessageId={crypto.randomUUID()} {...extra} />,
+    { title: 'Chat' },
+  )
+}
+
 web.get('/', (c) => c.render(<Home />, { title: 'Home' }))
 
-web.get('/chat', async (c) => {
-  const { userId } = getAuth(c)
-  // requireSignedIn guarantees a user here.
-  const user = await c.get('clerk').users.getUser(userId!)
-  const who = user.primaryEmailAddress?.emailAddress ?? user.username ?? 'your account'
-  return c.render(<ChatPage who={who} />, { title: 'Chat' })
+web.get('/chat', (c) => renderChat(c, currentUserId(c)))
+
+const messageForm = z.object({
+  clientMessageId: z.uuid('Something went wrong with the form. Please reload the page and try again.'),
+  text: z
+    .string()
+    .trim()
+    .min(1, 'Please type a message.')
+    .max(MAX_MESSAGE_LENGTH, `Messages can be at most ${MAX_MESSAGE_LENGTH} characters.`),
 })
 
 // A plain form post; csrf() rejects posts from other websites.
+web.post('/chat', csrf(), async (c) => {
+  const userId = currentUserId(c)
+  const body = await c.req.parseBody()
+  const parsed = messageForm.safeParse(body)
+  if (!parsed.success) {
+    c.status(422)
+    const draft = typeof body.text === 'string' ? body.text.slice(0, MAX_MESSAGE_LENGTH) : ''
+    return renderChat(c, userId, { error: parsed.error.issues[0]?.message, draft })
+  }
+
+  const { text, clientMessageId } = parsed.data
+  const saved = await saveMessage({
+    channel: 'web',
+    externalId: userId,
+    clerkUserId: userId,
+    role: 'user',
+    content: text,
+    providerMessageId: `web:${clientMessageId}`,
+  })
+
+  // Only answer new messages; a re-submitted form was already answered.
+  if (saved) {
+    // Echo for now. Step 7 moves this to a Trigger.dev task, Step 8 makes it AI.
+    await sendToChannel({ channel: 'web', externalId: userId, clerkUserId: userId, text: `You said: ${text}` })
+  }
+
+  // Post/Redirect/Get: refreshing the page won't send the message again.
+  return c.redirect('/chat#latest', 303)
+})
+
 web.post('/sign-out', csrf(), clerk, async (c) => {
   await signOut(c)
   return c.redirect('/', 303)
