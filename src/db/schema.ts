@@ -18,7 +18,10 @@ export const channelLinks = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     channel: text('channel').$type<Channel>().notNull(),
-    /** The sender's id on that channel, e.g. the WhatsApp number (wa_id). */
+    /**
+     * The sender's id on that channel. For WhatsApp: the business-scoped user
+     * id (BSUID), or the phone number if Meta sends no BSUID.
+     */
     externalId: text('external_id').notNull(),
     clerkUserId: text('clerk_user_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
