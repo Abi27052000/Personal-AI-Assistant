@@ -5,7 +5,7 @@ import { css, cx } from 'hono/css'
 import type { FC } from 'hono/jsx'
 import { z } from 'zod'
 import { clerk, requireSignedIn, signOut } from '../auth/clerk.js'
-import { sendToChannel } from '../channels/channel-senders.js'
+import { dispatchUserMessage } from '../agent/dispatch.js'
 import { loadHistory, saveMessage } from '../channels/transcript.js'
 import type { Message } from '../db/schema.js'
 import { gateInbound, UPGRADE_MESSAGE, type GateResult } from '../gate/channel-gate.js'
@@ -172,6 +172,37 @@ const UpgradeNotice: FC<{ url: string }> = ({ url }) => (
   </div>
 )
 
+/** Seconds between automatic page refreshes while a reply is on its way. */
+const REFRESH_SECONDS = 2
+/** Stop refreshing automatically after this long without a reply. */
+const MAX_WAIT_MS = 2 * 60 * 1000
+
+/**
+ * While the newest message is the user's, the reply is still being written.
+ * Show a placeholder and refresh the page until it arrives (no JavaScript:
+ * the <meta> tag is hoisted into <head>).
+ */
+const PendingReply: FC<{ history: Message[] }> = ({ history }) => {
+  const last = history.at(-1)
+  if (!last || last.role !== 'user') return null
+  const waitedMs = Date.now() - last.createdAt.getTime()
+  if (waitedMs > MAX_WAIT_MS) {
+    return (
+      <div class={cx(bubble, fromAssistant, muted)}>
+        This is taking longer than usual. Refresh the page to check again.
+      </div>
+    )
+  }
+  return (
+    <>
+      <meta http-equiv="refresh" content={String(REFRESH_SECONDS)} />
+      <div class={cx(bubble, fromAssistant, muted)} aria-live="polite">
+        Thinking…
+      </div>
+    </>
+  )
+}
+
 interface ChatPageProps {
   who: string
   history: Message[]
@@ -205,6 +236,7 @@ const ChatPage: FC<ChatPageProps> = ({ who, history, gate, clientMessageId, erro
           <div class={cx(bubble, m.role === 'user' ? fromUser : fromAssistant)}>{m.content}</div>
         ))
       )}
+      <PendingReply history={history} />
     </div>
 
     {gate.status === 'upgrade_required' ? (
@@ -318,11 +350,9 @@ web.post('/chat', csrf(), async (c) => {
     providerMessageId: `web:${clientMessageId}`,
   })
 
-  // Only answer new messages; a re-submitted form was already answered.
-  if (saved) {
-    // Echo for now. Step 7 moves this to a Trigger.dev task, Step 8 makes it AI.
-    await sendToChannel({ channel: 'web', externalId: userId, clerkUserId: userId, text: `You said: ${text}` })
-  }
+  // Only new messages go to the assistant; a re-submitted form already did.
+  // The reply is written by a Trigger.dev task; the page waits for it.
+  if (saved) await dispatchUserMessage(saved.id)
 
   // Post/Redirect/Get: refreshing the page won't send the message again.
   return c.redirect('/chat#latest', 303)

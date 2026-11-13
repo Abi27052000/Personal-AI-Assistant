@@ -1,0 +1,10 @@
+{
+  // Type-checks the config files in the project root, which the main
+  // tsconfig.json can't include (its rootDir is ./src). Used by `npm run typecheck`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["drizzle.config.ts", "trigger.config.ts"]
+}

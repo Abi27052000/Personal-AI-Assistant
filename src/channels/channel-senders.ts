@@ -6,6 +6,11 @@ export interface OutboundMessage {
   externalId: string
   clerkUserId: string
   text: string
+  /**
+   * The user message this replies to. Each message gets at most one reply,
+   * so a retried task can't deliver the same reply twice.
+   */
+  replyToMessageId?: string
 }
 
 /**
@@ -22,6 +27,9 @@ export async function sendToChannel(message: OutboundMessage): Promise<void> {
         clerkUserId: message.clerkUserId,
         role: 'assistant',
         content: message.text,
+        providerMessageId: message.replyToMessageId
+          ? `reply:${message.replyToMessageId}`
+          : undefined,
       })
       return
     case 'whatsapp':
